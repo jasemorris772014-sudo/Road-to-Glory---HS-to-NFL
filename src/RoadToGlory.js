@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState} from 'react';
 
 export default function RoadToGlory() {
   const [gameState, setGameState] = useState('intro');
@@ -555,7 +555,7 @@ export default function RoadToGlory() {
     </div>
   );
 
-  const StatBar = ({ label, value, max = 99, color = 'green' }) => (
+  /*const StatBar = ({ label, value, max = 99, color = 'green' }) => (
     <div className="mb-2">
       <div className="flex justify-between text-sm font-bold mb-1">
         <span>{label}</span>
@@ -568,7 +568,7 @@ export default function RoadToGlory() {
         />
       </div>
     </div>
-  );
+  ); */
 
   // GAME STATES
 
