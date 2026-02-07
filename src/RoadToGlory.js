@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect ,useRef } from 'react';
 
 export default function RoadToGlory() {
   const [gameState, setGameState] = useState('intro');
