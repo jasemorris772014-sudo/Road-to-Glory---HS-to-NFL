@@ -147,7 +147,7 @@ export default function RoadToGlory() {
       }
     };
 
-    const handleKeyUp = (e) => {
+    const handleKeyUp = (e) => {if (e.target.tagName === 'INPUT') { return; }
       setKeys(prev => ({ ...prev, [e.key]: false }));
       
       if (e.key === 'm' || e.key === 'M') {
@@ -950,14 +950,7 @@ export default function RoadToGlory() {
             <div className="space-y-6">
               <div>
                 <label className="block text-lg font-bold mb-2" style={{ fontFamily: 'monospace' }}>NAME:</label>
-                <input
-                  type="text"
-                  className="w-full p-3 border-4 border-gray-900 text-xl font-bold bg-white"
-                  style={{ fontFamily: 'monospace' }}
-                  value={player.name}
-                  onChange={(e) => setPlayer({ ...player, name: e.target.value })}
-                  placeholder="Enter name..."
-                />
+           <input autoFocus type="text" className="w-full p-3 border-4 border-gray-900 text-xl font-bold bg-white text-black" style={{ fontFamily: 'monospace' }} value={player.name} onChange={(e) => setPlayer({ ...player, name: e.target.value })} onKeyDown={(e) => e.stopPropagation()} onKeyUp={(e) => e.stopPropagation()} placeholder="Enter name..." />
               </div>
 
               <div>
