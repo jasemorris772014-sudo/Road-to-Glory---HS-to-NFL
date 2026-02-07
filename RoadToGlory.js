@@ -1182,3 +1182,4 @@ export default function RoadToGlory() {
 
   return <div>Game state: {gameState}</div>;
 }
+export default RoadToGlory;
