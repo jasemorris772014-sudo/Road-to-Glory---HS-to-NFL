@@ -1,15 +1,25 @@
-import React, { useState} from 'react';
+import React, { useState, useRef } from 'react';
 
 export default function RoadToGlory() {
   const [gameState, setGameState] = useState('intro');
-  const [playState, setPlayState] = useState(null);
-  const [currentPlay, setCurrentPlay] = useState(0);
-  const [gameScore, setGameScore] = useState({ player: 0, opponent: 0 });
-  const [gameplayState, setGameplayState] = useState(null);
-  const [trainingSkills, setTrainingSkills] = useState([]);
-  const [scoutNotification, setScoutNotification] = useState(null);
-  const [playoffStatus, setPlayoffStatus] = useState(null);
+  const canvasRef = useRef(null);
+  const animationRef = useRef(null);
   
+  // Game state
+  const [quarter, setQuarter] = useState(1);
+  const [gameTime, setGameTime] = useState(900); // 15 minutes per quarter
+  const [clockRunning, setClockRunning] = useState(false);
+  const [possession, setPossession] = useState('player');
+  const [down, setDown] = useState(1);
+  const [yardsToGo, setYardsToGo] = useState(10);
+  const [ballPosition, setBallPosition] = useState(25);
+  const [gameScore, setGameScore] = useState({ player: 0, opponent: 0 });
+  const [playInProgress, setPlayInProgress] = useState(false);
+  const [playStartTime, setPlayStartTime] = useState(null);
+  const [stayedInBounds, setStayedInBounds] = useState(true);
+  const [isOvertimeState, setIsOvertimeState] = useState(false);
+  
+  // Player data
   const [player, setPlayer] = useState({
     name: '',
     position: '',
@@ -21,8 +31,9 @@ export default function RoadToGlory() {
     grades: 50,
     coachRelation: 50,
     season: 0,
-    level: 'highschool', // highschool, college
+    level: 'highschool',
     college: null,
+    collegeTier: null,
     teamRecord: { wins: 0, losses: 0 },
     gamesStarted: 0,
     careerStats: {
@@ -31,9 +42,25 @@ export default function RoadToGlory() {
       tackles: 0,
       interceptions: 0,
       sacks: 0,
-      blocks: 0
+      completions: 0,
+      attempts: 0,
+      receptions: 0
     }
   });
+
+  // Field players
+  const [fieldPlayers, setFieldPlayers] = useState({
+    ball: { x: 400, y: 550, vx: 0, vy: 0, thrown: false },
+    userPlayer: { x: 400, y: 550, vx: 0, vy: 0, hasBall: false, calling: false },
+    qb: { x: 400, y: 550 },
+    receivers: [],
+    defenders: [],
+    ballCarrier: null
+  });
+
+  // Input state
+  const [keys, setKeys] = useState({});
+  const [callingForBall, setCallingForBall] = useState(false);
 
   const positions = ['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S'];
   
@@ -50,19 +77,39 @@ export default function RoadToGlory() {
   };
 
   const colleges = [
-    { name: 'Alabama', minStars: 4, tier: 'Elite' },
-    { name: 'Ohio State', minStars: 4, tier: 'Elite' },
-    { name: 'Georgia', minStars: 4, tier: 'Elite' },
-    { name: 'Michigan', minStars: 3, tier: 'Good' },
-    { name: 'Penn State', minStars: 3, tier: 'Good' },
-    { name: 'Wisconsin', minStars: 2, tier: 'Mid' },
-    { name: 'Iowa State', minStars: 2, tier: 'Mid' }
+    { name: 'Alabama', minStars: 5, tier: 'Elite' },
+    { name: 'Ohio State', minStars: 5, tier: 'Elite' },
+    { name: 'Georgia', minStars: 5, tier: 'Elite' },
+    { name: 'Clemson', minStars: 5, tier: 'Elite' },
+    { name: 'Michigan', minStars: 4, tier: 'Top' },
+    { name: 'Penn State', minStars: 4, tier: 'Top' },
+    { name: 'USC', minStars: 4, tier: 'Top' },
+    { name: 'Texas', minStars: 4, tier: 'Top' },
+    { name: 'LSU', minStars: 4, tier: 'Top' },
+    { name: 'Florida', minStars: 4, tier: 'Top' },
+    { name: 'Notre Dame', minStars: 4, tier: 'Top' },
+    { name: 'Oklahoma', minStars: 4, tier: 'Top' },
+    { name: 'Wisconsin', minStars: 3, tier: 'Good' },
+    { name: 'Oregon', minStars: 3, tier: 'Good' },
+    { name: 'Miami', minStars: 3, tier: 'Good' },
+    { name: 'Florida State', minStars: 3, tier: 'Good' },
+    { name: 'Tennessee', minStars: 3, tier: 'Good' },
+    { name: 'Auburn', minStars: 3, tier: 'Good' },
+    { name: 'Texas A&M', minStars: 3, tier: 'Good' },
+    { name: 'Washington', minStars: 3, tier: 'Good' },
+    { name: 'Iowa State', minStars: 2, tier: 'Mid' },
+    { name: 'Kansas State', minStars: 2, tier: 'Mid' },
+    { name: 'Wake Forest', minStars: 2, tier: 'Mid' },
+    { name: 'Boston College', minStars: 2, tier: 'Mid' },
+    { name: 'Syracuse', minStars: 2, tier: 'Mid' },
+    { name: 'Baylor', minStars: 2, tier: 'Mid' },
+    { name: 'TCU', minStars: 2, tier: 'Mid' },
+    { name: 'Arizona State', minStars: 2, tier: 'Mid' }
   ];
 
   const hsTeams = ['Lincoln High', 'Washington Prep', 'Roosevelt Academy', 'Jefferson HS'];
   const playerHSTeam = hsTeams[Math.floor(Math.random() * hsTeams.length)];
 
-  // Helper functions
   const initializeAttributes = (position) => {
     const attrs = {};
     positionAttributes[position].forEach(attr => {
@@ -76,335 +123,116 @@ export default function RoadToGlory() {
     return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
   };
 
-  // Play engine
-  const startPlayingGame = () => {
-    setCurrentPlay(0);
-    setGameScore({ player: 0, opponent: 0 });
-    setGameplayState({
-      touchdowns: 0,
-      yards: 0,
-      tackles: 0,
-      interceptions: 0,
-      sacks: 0,
-      blocks: 0,
-      catches: 0,
-      targets: 0
-    });
-    setGameState('playing');
-    nextPlay();
+  // Convert field position to canvas Y
+  const yardToCanvasY = (yard) => {
+    return 500 - (yard * 4); // 500px tall playing area, 4px per yard
   };
 
-  const nextPlay = () => {
-    if (currentPlay >= 12) {
-      finishGame();
-      return;
-    }
+  const canvasYToYard = (y) => {
+    return (500 - y) / 4;
+  };
 
-    const pos = player.position;
-    const isOffense = ['QB', 'RB', 'WR', 'TE', 'OL'].includes(pos);
+  // Keyboard handling
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      setKeys(prev => ({ ...prev, [e.key]: true }));
+      
+      // M key to call for ball
+      if (e.key === 'm' || e.key === 'M') {
+        if (['WR', 'TE', 'RB'].includes(player.position) && playInProgress && possession === 'player') {
+          setCallingForBall(true);
+          const updatedUser = { ...fieldPlayers.userPlayer, calling: true };
+          setFieldPlayers(prev => ({ ...prev, userPlayer: updatedUser }));
+        }
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      setKeys(prev => ({ ...prev, [e.key]: false }));
+      
+      if (e.key === 'm' || e.key === 'M') {
+        setCallingForBall(false);
+        const updatedUser = { ...fieldPlayers.userPlayer, calling: false };
+        setFieldPlayers(prev => ({ ...prev, userPlayer: updatedUser }));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [player.position, playInProgress, possession, fieldPlayers.userPlayer]);
+
+  // Game clock - only runs during plays
+  useEffect(() => {
+    if (gameState === 'playing' && clockRunning && playInProgress) {
+      const interval = setInterval(() => {
+        setGameTime(prev => {
+          if (prev <= 0) {
+            setClockRunning(false);
+            endQuarter();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000); // Real-time seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [gameState, clockRunning, playInProgress]);
+
+  const endQuarter = () => {
+    setPlayInProgress(false);
+    setClockRunning(false);
     
-    // Determine play type
-    let playType;
-    if (isOffense) {
-      const rand = Math.random();
-      if (pos === 'OL') {
-        playType = rand > 0.5 ? 'pass_block' : 'run_block';
-      } else if (pos === 'QB') {
-        playType = rand > 0.4 ? 'pass' : 'run';
-      } else if (pos === 'RB') {
-        playType = rand > 0.3 ? 'run' : 'pass';
-      } else { // WR/TE
-        playType = rand > 0.6 ? 'pass' : 'run_block';
+    if (quarter >= 4) {
+      if (gameScore.player === gameScore.opponent) {
+        // Go to overtime
+        setIsOvertimeState(true);
+        setQuarter(5);
+        setGameTime(300); // 5 minute OT
+        setPossession('player');
+        setBallPosition(25);
+        setDown(1);
+        setYardsToGo(10);
+      } else {
+        endGame();
       }
     } else {
-      // Defense
-      const rand = Math.random();
-      playType = rand > 0.6 ? 'pass_defense' : 'run_defense';
+      setQuarter(prev => prev + 1);
+      setGameTime(900);
+      setPossession(quarter % 2 === 0 ? 'player' : 'opponent');
+      setBallPosition(25);
+      setDown(1);
+      setYardsToGo(10);
     }
-
-    setPlayState({
-      playNumber: currentPlay + 1,
-      playType: playType,
-      down: (currentPlay % 4) + 1,
-      distance: Math.floor(Math.random() * 15) + 5,
-      fieldPosition: 25 + Math.floor(Math.random() * 50),
-      result: null,
-      userAction: null
-    });
   };
 
-  const executePlay = (action) => {
-    const pos = player.position;
-    const play = { ...playState };
-    play.userAction = action;
-    
-    let success = false;
-    let yards = 0;
-    let result = '';
-    const newGameplay = { ...gameplayState };
-
-    // Calculate success based on attributes and action
-    const relevantAttr = getRelevantAttribute(pos, play.playType, action);
-    const successChance = player.attributes[relevantAttr] / 100;
-    success = Math.random() < successChance;
-
-    // Execute based on position and play type
-    if (pos === 'QB' && play.playType === 'pass') {
-      if (action === 'short') {
-        yards = success ? Math.floor(Math.random() * 15) + 5 : 0;
-        result = success ? `Complete for ${yards} yards!` : 'Incomplete pass';
-      } else if (action === 'medium') {
-        yards = success ? Math.floor(Math.random() * 20) + 15 : 0;
-        result = success ? `Complete for ${yards} yards!` : 'Incomplete pass';
-      } else if (action === 'deep') {
-        yards = success ? Math.floor(Math.random() * 40) + 25 : 0;
-        if (success && yards > 50) {
-          newGameplay.touchdowns += 1;
-          setGameScore(prev => ({ ...prev, player: prev.player + 7 }));
-          result = `TOUCHDOWN! ${yards} yard bomb!`;
-        } else {
-          result = success ? `Complete for ${yards} yards!` : 'Incomplete pass';
-        }
-      }
-      newGameplay.yards += yards;
-    } else if (pos === 'RB') {
-      if (play.playType === 'run') {
-        if (action === 'outside') {
-          yards = success ? Math.floor(Math.random() * 12) + 3 : Math.floor(Math.random() * 3);
-        } else if (action === 'inside') {
-          yards = success ? Math.floor(Math.random() * 8) + 2 : Math.floor(Math.random() * 2);
-        } else if (action === 'power') {
-          yards = success ? Math.floor(Math.random() * 6) + 1 : 0;
-        }
-        result = `${yards} yard gain`;
-        newGameplay.yards += yards;
-        if (play.fieldPosition + yards >= 100) {
-          newGameplay.touchdowns += 1;
-          setGameScore(prev => ({ ...prev, player: prev.player + 7 }));
-          result = `TOUCHDOWN! ${yards} yard run!`;
-        }
-      } else if (play.playType === 'pass') {
-        // Receiving play
-        const targeted = Math.random() > 0.7; // 30% chance to be targeted
-        newGameplay.targets += targeted ? 1 : 0;
-        if (targeted && success) {
-          yards = Math.floor(Math.random() * 20) + 5;
-          newGameplay.catches += 1;
-          newGameplay.yards += yards;
-          result = `Caught for ${yards} yards!`;
-        } else if (targeted) {
-          result = 'Pass incomplete';
-        } else {
-          result = 'Not targeted this play';
-        }
-      }
-    } else if (pos === 'WR' || pos === 'TE') {
-      if (play.playType === 'pass') {
-        const targeted = Math.random() > (pos === 'WR' ? 0.65 : 0.75); // WR 35%, TE 25% target rate
-        newGameplay.targets += targeted ? 1 : 0;
-        if (targeted && success) {
-          yards = Math.floor(Math.random() * 25) + 10;
-          newGameplay.catches += 1;
-          newGameplay.yards += yards;
-          if (play.fieldPosition + yards >= 100) {
-            newGameplay.touchdowns += 1;
-            setGameScore(prev => ({ ...prev, player: prev.player + 7 }));
-            result = `TOUCHDOWN! ${yards} yard catch!`;
-          } else {
-            result = `Caught for ${yards} yards!`;
-          }
-        } else if (targeted) {
-          result = 'Pass incomplete';
-        } else {
-          result = 'Not targeted - blocking downfield';
-          newGameplay.blocks += 1;
-        }
-      } else {
-        // Blocking on run play
-        newGameplay.blocks += success ? 1 : 0;
-        result = success ? 'Great block!' : 'Missed block';
-      }
-    } else if (pos === 'OL') {
-      if (play.playType === 'pass_block') {
-        newGameplay.blocks += success ? 1 : 0;
-        result = success ? 'Stonewalled the rusher!' : 'QB pressured';
-      } else {
-        newGameplay.blocks += success ? 1 : 0;
-        result = success ? 'Opened a huge hole!' : 'Defender broke through';
-      }
-    } else if (['DL', 'LB', 'CB', 'S'].includes(pos)) {
-      // Defense
-      if (play.playType === 'run_defense') {
-        if (action === 'pursue') {
-          if (success) {
-            newGameplay.tackles += 1;
-            yards = -Math.floor(Math.random() * 5) - 2;
-            result = `TACKLE! ${Math.abs(yards)} yard loss!`;
-          } else {
-            result = 'Runner broke free';
-          }
-        } else if (action === 'contain') {
-          if (success) {
-            newGameplay.tackles += 1;
-            result = 'Stopped for minimal gain';
-          } else {
-            result = 'Missed tackle';
-          }
-        }
-      } else if (play.playType === 'pass_defense') {
-        if (action === 'coverage') {
-          if (success && Math.random() > 0.85) {
-            newGameplay.interceptions += 1;
-            result = 'INTERCEPTION!';
-            setGameScore(prev => ({ ...prev, player: prev.player + 3 }));
-          } else if (success) {
-            result = 'Pass broken up!';
-          } else {
-            result = 'Receiver caught it';
-          }
-        } else if (action === 'blitz') {
-          if (success && Math.random() > 0.7) {
-            newGameplay.sacks += 1;
-            result = 'SACK!';
-          } else if (success) {
-            result = 'QB pressured';
-          } else {
-            result = 'Blocked';
-          }
-        }
-      }
-    }
-
-    // Opponent scores sometimes
-    if (Math.random() > 0.85) {
-      setGameScore(prev => ({ ...prev, opponent: prev.opponent + 7 }));
-    }
-
-    play.result = result;
-    setPlayState(play);
-    setGameplayState(newGameplay);
-    setCurrentPlay(currentPlay + 1);
-  };
-
-  const getRelevantAttribute = (pos, playType, action) => {
-    if (pos === 'QB') {
-      if (action === 'short' || action === 'medium') return 'Accuracy';
-      return 'Arm Strength';
-    } else if (pos === 'RB') {
-      if (playType === 'pass') return 'Catching';
-      if (action === 'outside') return 'Speed';
-      if (action === 'power') return 'Power';
-      return 'Agility';
-    } else if (pos === 'WR' || pos === 'TE') {
-      if (playType === 'pass') return 'Catching';
-      return 'Blocking';
-    } else if (pos === 'OL') {
-      return playType === 'pass_block' ? 'Pass Blocking' : 'Run Blocking';
-    } else if (['DL', 'LB', 'CB', 'S'].includes(pos)) {
-      if (action === 'coverage') return pos === 'CB' ? 'Man Coverage' : 'Zone Coverage';
-      if (action === 'blitz') return 'Speed';
-      return 'Tackle';
-    }
-    return Object.keys(player.attributes)[0];
-  };
-
-  const finishGame = () => {
+  const endGame = () => {
     const won = gameScore.player > gameScore.opponent;
     const newPlayer = { ...player };
     
-    // Update career stats
-    newPlayer.careerStats.touchdowns += gameplayState.touchdowns;
-    newPlayer.careerStats.yards += gameplayState.yards;
-    newPlayer.careerStats.tackles += gameplayState.tackles;
-    newPlayer.careerStats.interceptions += gameplayState.interceptions;
-    newPlayer.careerStats.sacks += gameplayState.sacks;
-    newPlayer.careerStats.blocks += gameplayState.blocks;
-    newPlayer.gamesStarted += 1;
-
-    // Update team record
-    if (won) {
-      newPlayer.teamRecord.wins += 1;
-    } else {
-      newPlayer.teamRecord.losses += 1;
-    }
-
-    // Improve attributes based on performance
-    const performanceScore = gameplayState.touchdowns * 10 + gameplayState.yards * 0.1 + 
-                            gameplayState.tackles * 5 + gameplayState.sacks * 8 + 
-                            gameplayState.interceptions * 10;
-    
-    if (performanceScore > 30) {
-      const attrKeys = Object.keys(newPlayer.attributes);
-      const randomAttr = attrKeys[Math.floor(Math.random() * attrKeys.length)];
-      newPlayer.attributes[randomAttr] = Math.min(99, newPlayer.attributes[randomAttr] + 2);
-      newPlayer.overall = calculateOverall(newPlayer.attributes);
-    }
-
-    // Scout notification for high school
-    if (player.level === 'highschool' && performanceScore > 40) {
-      const scoutSchools = ['Alabama', 'Ohio State', 'Georgia', 'Michigan', 'USC'];
-      const scoutSchool = scoutSchools[Math.floor(Math.random() * scoutSchools.length)];
-      setScoutNotification(`🔍 ${scoutSchool} scouts were at the game watching you!`);
-    }
-
-    // Check for playoffs
-    if (newPlayer.teamRecord.wins >= 8) {
-      setPlayoffStatus({
-        made: true,
-        message: '🏆 YOUR TEAM MADE THE PLAYOFFS!'
-      });
-    }
-
-    setPlayer(newPlayer);
-    setGameState('postgame');
-  };
-
-  const simGame = () => {
-    // Quick sim with random results
-    const won = Math.random() > 0.5;
-    const newPlayer = { ...player };
-    
-    // Generate random stats
-    const pos = player.position;
-    const isOffense = ['QB', 'RB', 'WR', 'TE'].includes(pos);
-    
-    if (isOffense) {
-      const tds = Math.floor(Math.random() * 3);
-      const yards = Math.floor(Math.random() * 100) + 50;
-      newPlayer.careerStats.touchdowns += tds;
-      newPlayer.careerStats.yards += yards;
-    } else {
-      const tackles = Math.floor(Math.random() * 10) + 3;
-      const sacks = Math.random() > 0.7 ? 1 : 0;
-      const ints = Math.random() > 0.85 ? 1 : 0;
-      newPlayer.careerStats.tackles += tackles;
-      newPlayer.careerStats.sacks += sacks;
-      newPlayer.careerStats.interceptions += ints;
-    }
-
     newPlayer.gamesStarted += 1;
     if (won) {
       newPlayer.teamRecord.wins += 1;
     } else {
       newPlayer.teamRecord.losses += 1;
     }
-
-    setGameScore({ 
-      player: Math.floor(Math.random() * 20) + 20,
-      opponent: won ? Math.floor(Math.random() * 15) + 10 : Math.floor(Math.random() * 20) + 25
-    });
-
+    
     setPlayer(newPlayer);
     setGameState('postgame');
   };
 
-  // Season progression
-  const continueToNextGame = () => {
-    setScoutNotification(null);
-    setPlayoffStatus(null);
-    setGameState(player.level === 'highschool' ? 'highschool' : 'college');
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Initialize game
   const startGame = () => {
     if (player.name && player.position) {
       const attrs = initializeAttributes(player.position);
@@ -417,161 +245,694 @@ export default function RoadToGlory() {
     }
   };
 
-  const playHighSchoolSeason = (focus) => {
-    const newPlayer = { ...player };
+  // Start actual gameplay
+  const startLiveGame = () => {
+    setQuarter(1);
+    setGameTime(900);
+    setPossession('player');
+    setDown(1);
+    setYardsToGo(10);
+    setBallPosition(25);
+    setGameScore({ player: 0, opponent: 0 });
+    setPlayInProgress(false);
+    setClockRunning(false);
+    setIsOvertimeState(false);
     
-    const attrKeys = Object.keys(newPlayer.attributes);
-    let improvementCount = focus === 'performance' ? 3 : focus === 'grades' ? 1 : 2;
-    
-    for (let i = 0; i < improvementCount; i++) {
-      const randomAttr = attrKeys[Math.floor(Math.random() * attrKeys.length)];
-      newPlayer.attributes[randomAttr] = Math.min(99, newPlayer.attributes[randomAttr] + Math.floor(Math.random() * 8) + 3);
-    }
-
-    if (focus === 'grades') {
-      newPlayer.grades += Math.floor(Math.random() * 20) + 15;
-    } else if (focus === 'performance') {
-      newPlayer.grades += Math.floor(Math.random() * 10) + 5;
-    } else {
-      newPlayer.grades += Math.floor(Math.random() * 15) + 10;
-    }
-
-    newPlayer.grades = Math.min(100, newPlayer.grades);
-    newPlayer.overall = calculateOverall(newPlayer.attributes);
-
-    const avgScore = (newPlayer.overall + newPlayer.grades) / 2;
-    let stars = 2;
-    if (avgScore >= 90) stars = 5;
-    else if (avgScore >= 75) stars = 4;
-    else if (avgScore >= 60) stars = 3;
-
-    const heightGain = Math.floor(Math.random() * 3);
-    const weightGain = Math.floor(Math.random() * 15) + 5;
-
-    newPlayer.height += heightGain;
-    newPlayer.weight += weightGain;
-    newPlayer.stars = stars;
-
-    setPlayer(newPlayer);
-    setGameState('recruiting');
+    setupPlayersForPlay();
+    setGameState('playing');
   };
 
-  const chooseCollege = (college) => {
-    setPlayer({
-      ...player,
-      college: college.name,
-      season: 1,
-      level: 'college',
-      teamRecord: { wins: 0, losses: 0 }
+  const setupPlayersForPlay = () => {
+    const ballY = yardToCanvasY(ballPosition);
+    const isOffense = possession === 'player' && ['QB', 'RB', 'WR', 'TE', 'OL'].includes(player.position);
+    
+    if (possession === 'player') {
+      if (player.position === 'QB') {
+        setFieldPlayers({
+          ball: { x: 400, y: ballY, vx: 0, vy: 0, thrown: false },
+          userPlayer: { x: 400, y: ballY, vx: 0, vy: 0, hasBall: true, calling: false },
+          qb: { x: 400, y: ballY },
+          receivers: [
+            { x: 200, y: ballY, vx: 0, vy: -3, route: 'go', targetY: ballY - 200 },
+            { x: 350, y: ballY, vx: 1, vy: -2, route: 'slant', targetY: ballY - 150 },
+            { x: 600, y: ballY, vx: 0, vy: -2.5, route: 'out', targetY: ballY - 130 }
+          ],
+          defenders: [
+            { x: 190, y: ballY - 40, vx: 0, vy: -2.5 },
+            { x: 340, y: ballY - 40, vx: 1, vy: -2 },
+            { x: 610, y: ballY - 40, vx: 0, vy: -2.5 },
+            { x: 400, y: ballY - 60, vx: 0, vy: -1 }
+          ],
+          ballCarrier: null
+        });
+      } else if (player.position === 'RB') {
+        setFieldPlayers({
+          ball: { x: 400, y: ballY, vx: 0, vy: 0, thrown: false },
+          userPlayer: { x: 380, y: ballY + 10, vx: 0, vy: 0, hasBall: false, calling: false },
+          qb: { x: 400, y: ballY },
+          receivers: [
+            { x: 380, y: ballY + 10, vx: 0, vy: 0, isUser: true },
+            { x: 250, y: ballY, vx: 0, vy: -3, route: 'go', targetY: ballY - 180 },
+            { x: 550, y: ballY, vx: 0, vy: -2, route: 'slant', targetY: ballY - 130 }
+          ],
+          defenders: [
+            { x: 370, y: ballY - 30, vx: 0, vy: -1 },
+            { x: 420, y: ballY - 30, vx: 0, vy: -1 },
+            { x: 240, y: ballY - 40, vx: 0, vy: -2.5 }
+          ],
+          ballCarrier: null
+        });
+      } else if (player.position === 'WR' || player.position === 'TE') {
+        setFieldPlayers({
+          ball: { x: 400, y: ballY, vx: 0, vy: 0, thrown: false },
+          userPlayer: { x: 150, y: ballY, vx: 0, vy: 0, hasBall: false, calling: false },
+          qb: { x: 400, y: ballY },
+          receivers: [
+            { x: 150, y: ballY, vx: 0, vy: 0, isUser: true },
+            { x: 650, y: ballY, vx: 0, vy: -3, route: 'go', targetY: ballY - 200 },
+            { x: 400, y: ballY + 5, vx: 0, vy: -2, route: 'flat', targetY: ballY - 80 }
+          ],
+          defenders: [
+            { x: 140, y: ballY - 40, vx: 0, vy: -2.5 },
+            { x: 660, y: ballY - 40, vx: 0, vy: -2.5 },
+            { x: 400, y: ballY - 50, vx: 0, vy: -1.5 }
+          ],
+          ballCarrier: null
+        });
+      }
+    } else {
+      // Defense setup
+      const defX = 300 + Math.random() * 200;
+      const defY = ballY - 80;
+      
+      setFieldPlayers({
+        ball: { x: 400, y: ballY, vx: 0, vy: 0, thrown: false },
+        userPlayer: { x: defX, y: defY, vx: 0, vy: 0, hasBall: false, calling: false },
+        qb: { x: 400, y: ballY },
+        receivers: [
+          { x: 200, y: ballY, vx: 0, vy: -2.5, route: 'go', targetY: ballY - 180 },
+          { x: 350, y: ballY, vx: 1, vy: -2, route: 'slant', targetY: ballY - 140 },
+          { x: 600, y: ballY, vx: 0, vy: -2, route: 'out', targetY: ballY - 120 }
+        ],
+        defenders: [
+          { x: defX, y: defY, vx: 0, vy: 0, isUser: true },
+          { x: 190, y: ballY - 50, vx: 0, vy: -2 },
+          { x: 610, y: ballY - 50, vx: 0, vy: -2 }
+        ],
+        ballCarrier: { x: 400, y: ballY, vx: 0, vy: -2 }
+      });
+    }
+  };
+
+  const startPlay = (playType) => {
+    setPlayInProgress(true);
+    setClockRunning(true);
+    setPlayStartTime(Date.now());
+    setStayedInBounds(true);
+    
+    if (possession === 'opponent') {
+      // Defense play
+      runDefensePlay();
+    } else if (playType === 'run' && (player.position === 'RB' || player.position === 'QB')) {
+      runRunPlay();
+    }
+    // Pass plays handled in game loop
+  };
+
+  const runRunPlay = () => {
+    const speed = player.attributes['Speed'] || 70;
+    const power = player.attributes['Power'] || 70;
+    
+    const baseYards = Math.floor((speed + power) / 20);
+    const bonus = Math.floor(Math.random() * 10);
+    const yards = Math.max(0, baseYards + bonus - 5);
+    
+    setTimeout(() => {
+      endPlay(yards, 'run');
+    }, 3000);
+  };
+
+  const runDefensePlay = () => {
+    // Opponent offense - improved AI
+    const offenseSuccess = Math.random() < 0.68; // 68% success rate
+    
+    setTimeout(() => {
+      if (offenseSuccess) {
+        const playType = Math.random() > 0.5 ? 'pass' : 'run';
+        let yards;
+        
+        if (playType === 'pass') {
+          yards = Math.floor(Math.random() * 20) + 8;
+        } else {
+          yards = Math.floor(Math.random() * 12) + 3;
+        }
+        
+        // User can make tackles
+        const userTackle = Math.random() < ((player.attributes['Tackle'] || 70) / 120);
+        if (userTackle) {
+          yards = Math.max(0, yards - 5);
+          const newPlayer = { ...player };
+          newPlayer.careerStats.tackles += 1;
+          setPlayer(newPlayer);
+        }
+        
+        endPlay(yards, playType, true);
+      } else {
+        // Stop/sack
+        const newPlayer = { ...player };
+        if (Math.random() > 0.7) {
+          newPlayer.careerStats.sacks += 1;
+        }
+        newPlayer.careerStats.tackles += 1;
+        setPlayer(newPlayer);
+        
+        endPlay(0, 'stop', true);
+      }
+    }, 3000);
+  };
+
+  const endPlay = (yards, playType, isOpponentPlay = false) => {
+    setPlayInProgress(false);
+    
+    // Clock runoff for staying in bounds (3 seconds)
+    if (stayedInBounds && clockRunning) {
+      setGameTime(prev => Math.max(0, prev - 3));
+    }
+    
+    setClockRunning(false);
+    
+    const newBallPos = ballPosition + (isOpponentPlay ? yards : yards);
+    
+    // Update stats
+    const newPlayer = { ...player };
+    if (!isOpponentPlay && playType === 'pass' && player.position === 'QB') {
+      newPlayer.careerStats.attempts += 1;
+      if (yards > 0) {
+        newPlayer.careerStats.completions += 1;
+        newPlayer.careerStats.yards += yards;
+      }
+    } else if (!isOpponentPlay && (playType === 'run' || playType === 'catch')) {
+      newPlayer.careerStats.yards += yards;
+      if (playType === 'catch') {
+        newPlayer.careerStats.receptions += 1;
+      }
+    }
+    
+    // Check for touchdown
+    if ((isOpponentPlay && newBallPos >= 100) || (!isOpponentPlay && newBallPos >= 100)) {
+      if (!isOpponentPlay) {
+        newPlayer.careerStats.touchdowns += 1;
+        setGameScore(prev => ({ ...prev, player: prev.player + 7 }));
+      } else {
+        setGameScore(prev => ({ ...prev, opponent: prev.opponent + 7 }));
+      }
+      
+      setPlayer(newPlayer);
+      setPossession(isOpponentPlay ? 'player' : 'opponent');
+      setBallPosition(25);
+      setDown(1);
+      setYardsToGo(10);
+      
+      // Check for overtime sudden death
+      if (isOvertimeState && !isOpponentPlay) {
+        endGame(); // Player wins in OT
+      } else if (isOvertimeState && isOpponentPlay) {
+        endGame(); // Opponent wins in OT
+      } else {
+        setupPlayersForPlay();
+      }
+      return;
+    }
+    
+    setBallPosition(newBallPos);
+    setPlayer(newPlayer);
+    
+    // Check for first down
+    if (yards >= yardsToGo) {
+      setDown(1);
+      setYardsToGo(10);
+    } else {
+      setDown(prev => {
+        if (prev >= 4) {
+          setPossession(isOpponentPlay ? 'player' : 'opponent');
+          setBallPosition(100 - newBallPos);
+          return 1;
+        }
+        return prev + 1;
+      });
+      setYardsToGo(prev => Math.max(prev - yards, 1));
+    }
+    
+    setupPlayersForPlay();
+  };
+
+  const attemptFieldGoal = () => {
+    setPlayInProgress(true);
+    setClockRunning(true);
+    
+    const distance = 100 - ballPosition + 17;
+    const maxDistance = 60;
+    const baseChance = 0.9;
+    const distancePenalty = Math.max(0, (distance - 30) / maxDistance);
+    const successChance = baseChance - distancePenalty;
+    
+    setTimeout(() => {
+      if (Math.random() < successChance) {
+        setGameScore(prev => ({ ...prev, player: prev.player + 3 }));
+        
+        // Check for OT field goal win
+        if (isOvertimeState && gameScore.player + 3 > gameScore.opponent) {
+          setClockRunning(false);
+          setPlayInProgress(false);
+          endGame();
+          return;
+        }
+      }
+      
+      setPossession('opponent');
+      setBallPosition(25);
+      setDown(1);
+      setYardsToGo(10);
+      setClockRunning(false);
+      setPlayInProgress(false);
+      setupPlayersForPlay();
+    }, 2000);
+  };
+
+  const executePunt = () => {
+    setPlayInProgress(true);
+    setClockRunning(true);
+    
+    setTimeout(() => {
+      const puntDistance = Math.floor(Math.random() * 20) + 35;
+      const newPos = Math.min(100, ballPosition + puntDistance);
+      
+      setPossession('opponent');
+      setBallPosition(100 - newPos);
+      setDown(1);
+      setYardsToGo(10);
+      setClockRunning(false);
+      setPlayInProgress(false);
+      setupPlayersForPlay();
+    }, 2000);
+  };
+
+  // Game loop for animations
+  useEffect(() => {
+    if (gameState !== 'playing' || !playInProgress) return;
+    
+    const gameLoop = setInterval(() => {
+      setFieldPlayers(prev => {
+        const updated = { ...prev };
+        
+        // Move receivers on routes
+        updated.receivers = prev.receivers.map(rec => {
+          if (rec.isUser) {
+            // User-controlled receiver - use arrow keys
+            const speed = (player.attributes['Speed'] || 70) / 15;
+            let newVx = 0;
+            let newVy = 0;
+            
+            if (keys['ArrowLeft']) newVx = -speed;
+            if (keys['ArrowRight']) newVx = speed;
+            if (keys['ArrowUp']) newVy = -speed;
+            if (keys['ArrowDown']) newVy = speed;
+            
+            return {
+              ...rec,
+              x: Math.max(50, Math.min(750, rec.x + newVx)),
+              y: Math.max(50, Math.min(550, rec.y + newVy)),
+              vx: newVx,
+              vy: newVy
+            };
+          } else {
+            // AI receiver running route
+            if (Math.abs(rec.y - rec.targetY) > 5) {
+              return {
+                ...rec,
+                x: rec.x + rec.vx,
+                y: rec.y + rec.vy
+              };
+            }
+            return rec;
+          }
+        });
+        
+        // Move defenders
+        updated.defenders = prev.defenders.map(def => {
+          if (def.isUser) {
+            // User-controlled defender - use arrow keys
+            const speed = (player.attributes['Speed'] || 70) / 15;
+            let newVx = 0;
+            let newVy = 0;
+            
+            if (keys['ArrowLeft']) newVx = -speed;
+            if (keys['ArrowRight']) newVx = speed;
+            if (keys['ArrowUp']) newVy = -speed;
+            if (keys['ArrowDown']) newVy = speed;
+            
+            return {
+              ...def,
+              x: Math.max(50, Math.min(750, def.x + newVx)),
+              y: Math.max(50, Math.min(550, def.y + newVy)),
+              vx: newVx,
+              vy: newVy
+            };
+          } else {
+            // AI defender
+            return {
+              ...def,
+              x: def.x + def.vx,
+              y: def.y + def.vy
+            };
+          }
+        });
+        
+        // Ball carrier movement (opponent offense)
+        if (prev.ballCarrier && possession === 'opponent') {
+          updated.ballCarrier = {
+            ...prev.ballCarrier,
+            x: prev.ballCarrier.x + prev.ballCarrier.vx,
+            y: prev.ballCarrier.y + prev.ballCarrier.vy
+          };
+          
+          updated.ball = {
+            ...prev.ball,
+            x: updated.ballCarrier.x,
+            y: updated.ballCarrier.y
+          };
+        }
+        
+        // Handle QB throwing to calling receiver
+        if (player.position !== 'QB' && prev.userPlayer.calling && !prev.ball.thrown && possession === 'player') {
+          // QB decides whether to throw (65% if calling)
+          if (Math.random() < 0.65) {
+            // Throw to user
+            const throwSuccess = Math.random() < 0.75; // 75% completion when called
+            
+            if (throwSuccess) {
+              // Ball flies to receiver
+              const dx = prev.userPlayer.x - prev.qb.x;
+              const dy = prev.userPlayer.y - prev.qb.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              
+              updated.ball = {
+                x: prev.userPlayer.x,
+                y: prev.userPlayer.y,
+                vx: 0,
+                vy: 0,
+                thrown: true
+              };
+              
+              updated.userPlayer = {
+                ...prev.userPlayer,
+                hasBall: true,
+                calling: false
+              };
+              
+              // End play with catch
+              const yards = Math.round(canvasYToYard(prev.qb.y) - canvasYToYard(prev.userPlayer.y));
+              setTimeout(() => {
+                endPlay(Math.max(0, yards), 'catch');
+              }, 500);
+            }
+          }
+        }
+        
+        return updated;
+      });
+    }, 50);
+    
+    return () => clearInterval(gameLoop);
+  }, [gameState, playInProgress, keys, player.position, possession, player.attributes]);
+
+  // Canvas rendering
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    const render = () => {
+      // Clear
+      ctx.fillStyle = '#2d5016';
+      ctx.fillRect(0, 0, 800, 600);
+      
+      // Draw stands/crowd
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, 800, 80);
+      ctx.fillRect(0, 520, 800, 80);
+      
+      // Fans (simple dots)
+      for (let i = 0; i < 50; i++) {
+        const x = Math.random() * 800;
+        const yTop = Math.random() * 70;
+        const yBottom = 530 + Math.random() * 60;
+        
+        ctx.fillStyle = Math.random() > 0.5 ? '#ff4444' : '#4444ff';
+        ctx.beginPath();
+        ctx.arc(x, yTop, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(x, yBottom, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // Draw yard lines
+      for (let yard = 0; yard <= 100; yard += 10) {
+        const y = yardToCanvasY(yard);
+        if (y < 80 || y > 520) continue;
+        
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = yard % 10 === 0 ? 2 : 1;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(800, y);
+        ctx.stroke();
+        
+        // Yard numbers
+        if (yard % 10 === 0 && yard !== 0 && yard !== 100) {
+          ctx.fillStyle = 'white';
+          ctx.font = 'bold 24px Arial';
+          ctx.fillText(yard.toString(), 20, y + 5);
+          ctx.fillText(yard.toString(), 740, y + 5);
+        }
+      }
+      
+      // Draw players as detailed sprites
+      // Defenders (red)
+      fieldPlayers.defenders.forEach(def => {
+        // Body
+        ctx.fillStyle = def.isUser ? '#ff0000' : '#cc3333';
+        ctx.beginPath();
+        ctx.ellipse(def.x, def.y, def.isUser ? 12 : 9, def.isUser ? 16 : 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Helmet
+        ctx.fillStyle = '#8B0000';
+        ctx.beginPath();
+        ctx.arc(def.x, def.y - (def.isUser ? 10 : 7), def.isUser ? 8 : 6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // User highlight
+        if (def.isUser) {
+          ctx.strokeStyle = 'yellow';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(def.x, def.y, 20, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      });
+      
+      // Receivers (blue)
+      fieldPlayers.receivers.forEach(rec => {
+        // Body
+        ctx.fillStyle = rec.isUser ? '#0066ff' : '#3399ff';
+        ctx.beginPath();
+        ctx.ellipse(rec.x, rec.y, rec.isUser ? 12 : 9, rec.isUser ? 16 : 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Helmet
+        ctx.fillStyle = '#003399';
+        ctx.beginPath();
+        ctx.arc(rec.x, rec.y - (rec.isUser ? 10 : 7), rec.isUser ? 8 : 6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // User highlight
+        if (rec.isUser) {
+          ctx.strokeStyle = 'yellow';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(rec.x, rec.y, 20, 0, Math.PI * 2);
+          ctx.stroke();
+          
+          // Show "CALLING" indicator
+          if (rec.calling || callingForBall) {
+            ctx.fillStyle = 'yellow';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText('CALLING!', rec.x - 30, rec.y - 30);
+          }
+        }
+      });
+      
+      // QB (blue)
+      if (player.position !== 'QB') {
+        ctx.fillStyle = '#3399ff';
+        ctx.beginPath();
+        ctx.ellipse(fieldPlayers.qb.x, fieldPlayers.qb.y, 9, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#003399';
+        ctx.beginPath();
+        ctx.arc(fieldPlayers.qb.x, fieldPlayers.qb.y - 7, 6, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // User is QB
+        ctx.fillStyle = '#0066ff';
+        ctx.beginPath();
+        ctx.ellipse(fieldPlayers.userPlayer.x, fieldPlayers.userPlayer.y, 12, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#003399';
+        ctx.beginPath();
+        ctx.arc(fieldPlayers.userPlayer.x, fieldPlayers.userPlayer.y - 10, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = 'yellow';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(fieldPlayers.userPlayer.x, fieldPlayers.userPlayer.y, 20, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      
+      // Ball carrier (opponent)
+      if (fieldPlayers.ballCarrier && possession === 'opponent') {
+        ctx.fillStyle = '#cc3333';
+        ctx.beginPath();
+        ctx.ellipse(fieldPlayers.ballCarrier.x, fieldPlayers.ballCarrier.y, 9, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#8B0000';
+        ctx.beginPath();
+        ctx.arc(fieldPlayers.ballCarrier.x, fieldPlayers.ballCarrier.y - 7, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // Ball
+      ctx.fillStyle = '#8B4513';
+      ctx.strokeStyle = '#654321';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(fieldPlayers.ball.x, fieldPlayers.ball.y, 7, 5, Math.PI / 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      
+      // Laces
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(fieldPlayers.ball.x + i * 2, fieldPlayers.ball.y - 3);
+        ctx.lineTo(fieldPlayers.ball.x + i * 2, fieldPlayers.ball.y + 3);
+        ctx.stroke();
+      }
+      
+      // Line of scrimmage
+      const losY = yardToCanvasY(ballPosition);
+      if (losY >= 80 && losY <= 520) {
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, losY);
+        ctx.lineTo(800, losY);
+        ctx.stroke();
+      }
+      
+      // First down line
+      const firstDownY = yardToCanvasY(ballPosition + yardsToGo);
+      if (firstDownY >= 80 && firstDownY <= 520) {
+        ctx.strokeStyle = 'rgba(0, 255, 255, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 5]);
+        ctx.beginPath();
+        ctx.moveTo(0, firstDownY);
+        ctx.lineTo(800, firstDownY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      
+      animationRef.current = requestAnimationFrame(render);
+    };
+    
+    render();
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [gameState, fieldPlayers, ballPosition, yardsToGo, playInProgress, callingForBall, possession]);
+
+  // Handle canvas clicks for QB passing
+  const handleCanvasClick = (e) => {
+    if (player.position !== 'QB' || playInProgress || possession !== 'player') return;
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (800 / rect.width);
+    const y = (e.clientY - rect.top) * (600 / rect.height);
+    
+    // Find closest receiver
+    let closestReceiver = -1;
+    let closestDist = Infinity;
+    
+    fieldPlayers.receivers.forEach((rec, i) => {
+      const dist = Math.sqrt((rec.x - x) ** 2 + (rec.y - y) ** 2);
+      if (dist < closestDist && dist < 60) {
+        closestDist = dist;
+        closestReceiver = i;
+      }
     });
-    setGameState('college');
-  };
-
-  const trainSkills = () => {
-    if (trainingSkills.length === 0) return;
     
-    const newPlayer = { ...player };
-    
-    trainingSkills.forEach(skill => {
-      newPlayer.attributes[skill] = Math.min(99, newPlayer.attributes[skill] + Math.floor(Math.random() * 5) + 3);
-    });
-
-    const otherAttrs = Object.keys(newPlayer.attributes).filter(a => !trainingSkills.includes(a));
-    const randomOther = otherAttrs[Math.floor(Math.random() * otherAttrs.length)];
-    newPlayer.attributes[randomOther] = Math.min(99, newPlayer.attributes[randomOther] + 2);
-
-    newPlayer.coachRelation += Math.floor(Math.random() * 10) + 5;
-    newPlayer.coachRelation = Math.min(100, newPlayer.coachRelation);
-    newPlayer.overall = calculateOverall(newPlayer.attributes);
-    newPlayer.season += 1;
-    newPlayer.weight += Math.floor(Math.random() * 8) + 2;
-
-    setPlayer(newPlayer);
-    setTrainingSkills([]);
-    
-    if (newPlayer.season >= 5) {
-      setGameState('draft');
-    } else {
-      setGameState('college');
+    if (closestReceiver >= 0) {
+      executePassPlay(closestReceiver);
     }
   };
 
-  const studyHard = () => {
-    const newPlayer = { ...player };
-    newPlayer.grades += Math.floor(Math.random() * 12) + 8;
-    newPlayer.grades = Math.min(100, newPlayer.grades);
+  const executePassPlay = (receiverIndex) => {
+    setPlayInProgress(true);
+    setClockRunning(true);
     
-    const attrKeys = Object.keys(newPlayer.attributes);
-    const randomAttr = attrKeys[Math.floor(Math.random() * attrKeys.length)];
-    newPlayer.attributes[randomAttr] = Math.min(99, newPlayer.attributes[randomAttr] + 2);
+    const receiver = fieldPlayers.receivers[receiverIndex];
+    const defender = fieldPlayers.defenders[receiverIndex] || fieldPlayers.defenders[0];
     
-    newPlayer.coachRelation += Math.floor(Math.random() * 5) + 3;
-    newPlayer.coachRelation = Math.min(100, newPlayer.coachRelation);
-    newPlayer.overall = calculateOverall(newPlayer.attributes);
-    newPlayer.season += 1;
-    newPlayer.weight += Math.floor(Math.random() * 6) + 1;
-
-    setPlayer(newPlayer);
-    
-    if (newPlayer.season >= 5) {
-      setGameState('draft');
-    } else {
-      setGameState('college');
-    }
+    setTimeout(() => {
+      const accuracy = player.attributes['Accuracy'] || 70;
+      const distance = Math.abs(receiver.y - fieldPlayers.qb.y);
+      const coverage = defender ? Math.abs(receiver.x - defender.x) + Math.abs(receiver.y - defender.y) : 100;
+      
+      const completionChance = (accuracy / 100) * (coverage / 150) * (100 / (distance / 10));
+      const completed = Math.random() < completionChance;
+      
+      if (completed) {
+        const yards = Math.round(canvasYToYard(fieldPlayers.qb.y) - canvasYToYard(receiver.y));
+        endPlay(yards, 'pass');
+      } else {
+        endPlay(0, 'incomplete');
+      }
+    }, 1500);
   };
 
-  const checkForGame = () => {
-    const canStart = player.stars >= 4 || player.season >= 3;
-    const willStart = canStart && (player.overall >= 70 && player.coachRelation >= 50);
-    
-    if (willStart) {
-      setGameState('pregame');
-    } else {
-      setGameState('practice');
-    }
-  };
-
-  const getDraftRound = () => {
-    const productionBonus = (player.careerStats.touchdowns * 2) + 
-                           (player.careerStats.tackles * 0.5) +
-                           (player.careerStats.sacks * 3) +
-                           (player.careerStats.interceptions * 4) +
-                           (player.gamesStarted * 0.5);
-    const totalScore = player.overall + productionBonus;
-
-    if (player.gamesStarted === 0) return 'Undrafted';
-    if (totalScore >= 120) return 'Round 1-2';
-    if (totalScore >= 100) return 'Round 3-4';
-    if (totalScore >= 80) return 'Round 5-7';
-    return 'Undrafted Free Agent';
-  };
-
-  const recruiterInterested = colleges.filter(c => player.stars >= c.minStars);
-
-  // UI Components
   const RetroBox = ({ children, color = 'blue', className = '' }) => (
     <div className={`border-4 border-${color}-900 bg-${color}-100 p-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)] ${className}`}>
       {children}
     </div>
   );
 
-  /*const StatBar = ({ label, value, max = 99, color = 'green' }) => (
-    <div className="mb-2">
-      <div className="flex justify-between text-sm font-bold mb-1">
-        <span>{label}</span>
-        <span>{value}/{max}</span>
-      </div>
-      <div className="h-4 bg-gray-800 border-2 border-gray-900">
-        <div 
-          className={`h-full bg-${color}-500`}
-          style={{ width: `${(value / max) * 100}%` }}
-        />
-      </div>
-    </div>
-  ); */
-
-  // GAME STATES
-
+  // INTRO
   if (gameState === 'intro') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-700 p-4">
@@ -581,14 +942,14 @@ export default function RoadToGlory() {
               🏈 ROAD TO GLORY
             </div>
             <div className="text-xl text-white font-bold" style={{ fontFamily: 'monospace' }}>
-              [ RETRO FOOTBALL CAREER SIM ]
+              [ RETRO BOWL CAREER MODE ]
             </div>
           </div>
           
           <RetroBox color="yellow">
             <div className="space-y-6">
               <div>
-                <label className="block text-lg font-bold mb-2" style={{ fontFamily: 'monospace' }}>PLAYER NAME:</label>
+                <label className="block text-lg font-bold mb-2" style={{ fontFamily: 'monospace' }}>NAME:</label>
                 <input
                   type="text"
                   className="w-full p-3 border-4 border-gray-900 text-xl font-bold bg-white"
@@ -600,16 +961,14 @@ export default function RoadToGlory() {
               </div>
 
               <div>
-                <label className="block text-lg font-bold mb-2" style={{ fontFamily: 'monospace' }}>SELECT POSITION:</label>
+                <label className="block text-lg font-bold mb-2" style={{ fontFamily: 'monospace' }}>POSITION:</label>
                 <div className="grid grid-cols-3 gap-3">
                   {positions.map(pos => (
                     <button
                       key={pos}
                       onClick={() => setPlayer({ ...player, position: pos })}
-                      className={`p-4 border-4 border-gray-900 font-bold text-xl transition shadow-[4px_4px_0px_0px_rgba(0,0,0,0.8)] ${
-                        player.position === pos
-                          ? 'bg-green-500 text-white'
-                          : 'bg-gray-200 hover:bg-gray-300'
+                      className={`p-4 border-4 border-gray-900 font-bold text-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,0.8)] ${
+                        player.position === pos ? 'bg-green-500 text-white' : 'bg-gray-200'
                       }`}
                       style={{ fontFamily: 'monospace' }}
                     >
@@ -619,22 +978,13 @@ export default function RoadToGlory() {
                 </div>
               </div>
 
-              <RetroBox color="gray" className="bg-gray-800 text-white">
-                <h3 className="font-bold text-xl mb-3" style={{ fontFamily: 'monospace' }}>STARTING STATS:</h3>
-                <div style={{ fontFamily: 'monospace' }}>
-                  <p className="text-lg">HEIGHT: {Math.floor(player.height / 12)}'{player.height % 12}"</p>
-                  <p className="text-lg">WEIGHT: {player.weight} LBS</p>
-                  <p className="text-sm text-yellow-300 mt-2">★ Play real games to develop your skills!</p>
-                </div>
-              </RetroBox>
-
               <button
                 onClick={startGame}
                 disabled={!player.name || !player.position}
-                className="w-full bg-green-600 text-white py-5 border-4 border-gray-900 font-bold text-2xl hover:bg-green-500 disabled:bg-gray-500 disabled:cursor-not-allowed shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
+                className="w-full bg-green-600 text-white py-5 border-4 border-gray-900 font-bold text-2xl hover:bg-green-500 disabled:bg-gray-500 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
                 style={{ fontFamily: 'monospace' }}
               >
-                {player.name && player.position ? '▶ START JOURNEY' : '⚠ SELECT NAME & POSITION'}
+                START
               </button>
             </div>
           </RetroBox>
@@ -643,6 +993,7 @@ export default function RoadToGlory() {
     );
   }
 
+  // HIGH SCHOOL
   if (gameState === 'highschool') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-900 to-blue-700 p-4">
@@ -651,254 +1002,128 @@ export default function RoadToGlory() {
             <div className="text-5xl font-bold text-yellow-300 mb-2" style={{ fontFamily: 'monospace', textShadow: '4px 4px 0px rgba(0,0,0,0.8)' }}>
               {playerHSTeam.toUpperCase()}
             </div>
-            <div className="text-2xl text-white font-bold" style={{ fontFamily: 'monospace' }}>
-              SENIOR SEASON | RECORD: {player.teamRecord.wins}-{player.teamRecord.losses}
-            </div>
           </div>
           
           <RetroBox color="yellow">
-            <div className="bg-blue-900 p-4 border-4 border-gray-900 mb-4 text-white">
-              <h3 className="font-bold text-2xl mb-2" style={{ fontFamily: 'monospace' }}>{player.name} - {player.position}</h3>
-              <div style={{ fontFamily: 'monospace' }} className="text-lg">
-                <p>HEIGHT: {Math.floor(player.height / 12)}'{player.height % 12}" | WEIGHT: {player.weight} LBS</p>
-                <p className="mt-2 text-yellow-300 text-2xl">
-                  RATING: {'★'.repeat(player.stars)}{'☆'.repeat(5 - player.stars)} ({player.stars}-STAR)
-                </p>
-                <p className="text-xl mt-1">OVERALL: {player.overall}</p>
-              </div>
-            </div>
-
-            <div className="bg-red-200 p-4 border-4 border-red-900 mb-4">
-              <p className="font-bold text-lg text-center" style={{ fontFamily: 'monospace' }}>
-                ⚠ NO D1 SCHOOLS RECRUITING YOU YET!
-              </p>
-            </div>
-
-            <h3 className="font-bold mb-3 text-xl" style={{ fontFamily: 'monospace' }}>NEXT GAME:</h3>
-            <div className="space-y-3">
-              <button
-                onClick={() => setGameState('pregame')}
-                className="w-full p-5 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-2xl shadow-[6px_6px_0px_0px_rgba(0,0,0,0.8)]"
-                style={{ fontFamily: 'monospace' }}
-              >
-                🏈 PLAY NEXT GAME
-              </button>
-              
-              <button
-                onClick={() => playHighSchoolSeason('performance')}
-                className="w-full p-4 bg-purple-400 hover:bg-purple-300 border-4 border-gray-900 text-left shadow-[6px_6px_0px_0px_rgba(0,0,0,0.8)]"
-              >
-                <div className="font-bold text-xl" style={{ fontFamily: 'monospace' }}>⏭ SKIP TO RECRUITING</div>
-                <div className="text-sm font-bold">Sim rest of season and see who's interested</div>
-              </button>
-            </div>
+            <button
+              onClick={startLiveGame}
+              className="w-full p-5 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-2xl shadow-[6px_6px_0px_0px_rgba(0,0,0,0.8)]"
+              style={{ fontFamily: 'monospace' }}
+            >
+              PLAY GAME
+            </button>
           </RetroBox>
         </div>
       </div>
     );
   }
 
-  if (gameState === 'pregame') {
+  // PLAYING
+  if (gameState === 'playing') {
+    const isOffense = possession === 'player' && ['QB', 'RB', 'WR', 'TE', 'OL'].includes(player.position);
+    const isDefense = possession === 'opponent' || !isOffense;
+    
     return (
-      <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-700 p-4">
-        <div className="max-w-3xl mx-auto pt-8">
-          <RetroBox color="yellow">
-            <div className="text-center mb-6">
-              <div className="text-5xl mb-4" style={{ fontFamily: 'monospace', textShadow: '4px 4px 0px rgba(0,0,0,0.8)' }}>
-                🏈 GAME DAY! 🏈
-              </div>
-              <div className="bg-green-600 text-white p-6 border-4 border-gray-900 mb-4">
-                <h2 className="text-3xl font-bold mb-2" style={{ fontFamily: 'monospace' }}>
-                  {player.level === 'highschool' ? playerHSTeam.toUpperCase() : player.college.toUpperCase()}
-                </h2>
-                <p className="text-2xl font-bold" style={{ fontFamily: 'monospace' }}>
-                  RECORD: {player.teamRecord.wins}-{player.teamRecord.losses}
-                </p>
-                <p className="text-xl font-bold mt-2" style={{ fontFamily: 'monospace' }}>
-                  {player.name} | {player.position} | OVR {player.overall}
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-gray-800 text-white p-4 border-4 border-gray-900 mb-6">
-              <p className="text-center text-xl font-bold mb-2" style={{ fontFamily: 'monospace' }}>
-                CHOOSE YOUR APPROACH:
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <button
-                onClick={startPlayingGame}
-                className="w-full p-6 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
-                style={{ fontFamily: 'monospace' }}
-              >
-                🎮 PLAY THE GAME
-              </button>
-
-              <button
-                onClick={simGame}
-                className="w-full p-6 bg-blue-500 hover:bg-blue-400 border-4 border-gray-900 font-bold text-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
-                style={{ fontFamily: 'monospace' }}
-              >
-                ⏭ SIM THE GAME
-              </button>
-            </div>
-          </RetroBox>
-        </div>
-      </div>
-    );
-  }
-
-  if (gameState === 'playing' && playState) {
-    const pos = player.position;
-    const isOffense = ['QB', 'RB', 'WR', 'TE', 'OL'].includes(pos);
-
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black p-4">
-        <div className="max-w-4xl mx-auto pt-4">
+      <div className="min-h-screen bg-gray-900 p-4">
+        <div className="max-w-5xl mx-auto">
           {/* Scoreboard */}
-          <div className="bg-gray-800 border-4 border-yellow-500 p-4 mb-4">
-            <div className="grid grid-cols-2 gap-4 text-center text-white" style={{ fontFamily: 'monospace' }}>
+          <div className="bg-gray-800 border-4 border-yellow-500 p-3 mb-3">
+            <div className="grid grid-cols-3 gap-4 text-center text-white" style={{ fontFamily: 'monospace' }}>
               <div>
-                <p className="text-lg">YOUR TEAM</p>
-                <p className="text-5xl font-bold text-green-400">{gameScore.player}</p>
+                <p className="text-4xl font-bold text-green-400">{gameScore.player}</p>
               </div>
               <div>
-                <p className="text-lg">OPPONENT</p>
-                <p className="text-5xl font-bold text-red-400">{gameScore.opponent}</p>
+                <p className="text-2xl font-bold">
+                  {isOvertimeState ? 'OT' : `Q${quarter}`} {formatTime(gameTime)}
+                </p>
+                <p className="text-sm">DOWN {down} | {yardsToGo} YDS | BALL {ballPosition}</p>
+              </div>
+              <div>
+                <p className="text-4xl font-bold text-red-400">{gameScore.opponent}</p>
               </div>
             </div>
           </div>
 
-          <RetroBox color="blue" className="bg-blue-900 text-white mb-4">
-            <div style={{ fontFamily: 'monospace' }}>
-              <p className="text-2xl font-bold">PLAY {playState.playNumber}/12</p>
-              <p className="text-xl">Down: {playState.down} | Distance: {playState.distance} | Field: {playState.fieldPosition}</p>
-              <p className="text-lg mt-2">Play Type: {playState.playType.toUpperCase().replace('_', ' ')}</p>
-            </div>
-          </RetroBox>
+          {/* Field */}
+          <canvas
+            ref={canvasRef}
+            width={800}
+            height={600}
+            onClick={handleCanvasClick}
+            className="border-4 border-white mx-auto block cursor-pointer"
+            style={{ maxWidth: '100%', height: 'auto' }}
+          />
 
-          {/* Player stats */}
-          <RetroBox color="green" className="bg-green-900 text-white mb-4">
-            <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'monospace' }}>YOUR STATS TODAY:</h3>
-            <div className="grid grid-cols-3 gap-2 text-center" style={{ fontFamily: 'monospace' }}>
-              {isOffense ? (
-                <>
-                  <div className="bg-blue-700 p-2 border-2 border-blue-500">
-                    <p className="text-sm">YARDS</p>
-                    <p className="text-2xl font-bold">{gameplayState.yards}</p>
-                  </div>
-                  <div className="bg-yellow-700 p-2 border-2 border-yellow-500">
-                    <p className="text-sm">TDs</p>
-                    <p className="text-2xl font-bold">{gameplayState.touchdowns}</p>
-                  </div>
-                  {(['WR', 'TE', 'RB'].includes(pos)) && (
-                    <div className="bg-purple-700 p-2 border-2 border-purple-500">
-                      <p className="text-sm">CATCHES</p>
-                      <p className="text-2xl font-bold">{gameplayState.catches}/{gameplayState.targets}</p>
-                    </div>
+          {/* Instructions */}
+          {!playInProgress && (
+            <div className="mt-3 bg-gray-800 border-2 border-white p-2 text-white text-center" style={{ fontFamily: 'monospace' }}>
+              {player.position === 'QB' && isOffense && <p>CLICK RECEIVERS TO THROW</p>}
+              {['WR', 'TE', 'RB'].includes(player.position) && isOffense && <p>PRESS M TO CALL FOR BALL | ARROW KEYS TO MOVE</p>}
+              {isDefense && <p>ARROW KEYS TO MOVE YOUR DEFENDER</p>}
+            </div>
+          )}
+
+          {/* Controls */}
+          {!playInProgress && (
+            <div className="mt-4">
+              {isOffense && (
+                <div className="grid grid-cols-2 gap-3">
+                  {(player.position === 'RB' || player.position === 'QB') && (
+                    <button
+                      onClick={() => startPlay('run')}
+                      className="p-4 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-xl"
+                      style={{ fontFamily: 'monospace' }}
+                    >
+                      RUN
+                    </button>
                   )}
-                  {pos === 'OL' && (
-                    <div className="bg-purple-700 p-2 border-2 border-purple-500">
-                      <p className="text-sm">BLOCKS</p>
-                      <p className="text-2xl font-bold">{gameplayState.blocks}</p>
-                    </div>
+                  {player.position === 'QB' && (
+                    <button
+                      onClick={() => startPlay('pass')}
+                      className="p-4 bg-blue-500 hover:bg-blue-400 border-4 border-gray-900 font-bold text-xl"
+                      style={{ fontFamily: 'monospace' }}
+                    >
+                      PASS
+                    </button>
                   )}
-                </>
-              ) : (
-                <>
-                  <div className="bg-red-700 p-2 border-2 border-red-500">
-                    <p className="text-sm">TACKLES</p>
-                    <p className="text-2xl font-bold">{gameplayState.tackles}</p>
-                  </div>
-                  <div className="bg-blue-700 p-2 border-2 border-blue-500">
-                    <p className="text-sm">SACKS</p>
-                    <p className="text-2xl font-bold">{gameplayState.sacks}</p>
-                  </div>
-                  <div className="bg-yellow-700 p-2 border-2 border-yellow-500">
-                    <p className="text-sm">INTs</p>
-                    <p className="text-2xl font-bold">{gameplayState.interceptions}</p>
-                  </div>
-                </>
+                  {down === 4 && (
+                    <>
+                      <button
+                        onClick={attemptFieldGoal}
+                        className="p-4 bg-yellow-500 hover:bg-yellow-400 border-4 border-gray-900 font-bold text-xl"
+                        style={{ fontFamily: 'monospace' }}
+                      >
+                        FG
+                      </button>
+                      <button
+                        onClick={executePunt}
+                        className="p-4 bg-orange-500 hover:bg-orange-400 border-4 border-gray-900 font-bold text-xl"
+                        style={{ fontFamily: 'monospace' }}
+                      >
+                        PUNT
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              
+              {isDefense && possession === 'opponent' && (
+                <button
+                  onClick={() => startPlay('defense')}
+                  className="w-full p-4 bg-red-500 hover:bg-red-400 border-4 border-gray-900 font-bold text-xl"
+                  style={{ fontFamily: 'monospace' }}
+                >
+                  PLAY DEFENSE
+                </button>
               )}
             </div>
-          </RetroBox>
-
-          {/* Play result */}
-          {playState.result && (
-            <RetroBox color="yellow" className="bg-yellow-400 mb-4">
-              <p className="text-2xl font-bold text-center" style={{ fontFamily: 'monospace' }}>
-                {playState.result}
-              </p>
-            </RetroBox>
-          )}
-
-          {/* Action buttons */}
-          {!playState.result && (
-            <RetroBox color="green">
-              <h3 className="text-2xl font-bold mb-4 text-center" style={{ fontFamily: 'monospace' }}>
-                CHOOSE YOUR ACTION:
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                {pos === 'QB' && playState.playType === 'pass' && (
-                  <>
-                    <button onClick={() => executePlay('short')} className="p-4 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>SHORT PASS</button>
-                    <button onClick={() => executePlay('medium')} className="p-4 bg-blue-500 hover:bg-blue-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>MEDIUM PASS</button>
-                    <button onClick={() => executePlay('deep')} className="p-4 bg-purple-500 hover:bg-purple-400 border-4 border-gray-900 font-bold text-xl col-span-2" style={{ fontFamily: 'monospace' }}>DEEP BOMB</button>
-                  </>
-                )}
-                {pos === 'RB' && playState.playType === 'run' && (
-                  <>
-                    <button onClick={() => executePlay('outside')} className="p-4 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>OUTSIDE RUN</button>
-                    <button onClick={() => executePlay('inside')} className="p-4 bg-blue-500 hover:bg-blue-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>INSIDE RUN</button>
-                    <button onClick={() => executePlay('power')} className="p-4 bg-red-500 hover:bg-red-400 border-4 border-gray-900 font-bold text-xl col-span-2" style={{ fontFamily: 'monospace' }}>POWER RUN</button>
-                  </>
-                )}
-                {(pos === 'WR' || pos === 'TE' || pos === 'RB') && playState.playType === 'pass' && (
-                  <>
-                    <button onClick={() => executePlay('route')} className="p-4 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-xl col-span-2" style={{ fontFamily: 'monospace' }}>RUN ROUTE</button>
-                  </>
-                )}
-                {(pos === 'WR' || pos === 'TE') && playState.playType === 'run_block' && (
-                  <>
-                    <button onClick={() => executePlay('block')} className="p-4 bg-orange-500 hover:bg-orange-400 border-4 border-gray-900 font-bold text-xl col-span-2" style={{ fontFamily: 'monospace' }}>BLOCK DOWNFIELD</button>
-                  </>
-                )}
-                {pos === 'OL' && (
-                  <>
-                    <button onClick={() => executePlay('block')} className="p-4 bg-orange-500 hover:bg-orange-400 border-4 border-gray-900 font-bold text-xl col-span-2" style={{ fontFamily: 'monospace' }}>{playState.playType === 'pass_block' ? 'PASS BLOCK' : 'RUN BLOCK'}</button>
-                  </>
-                )}
-                {!isOffense && playState.playType === 'run_defense' && (
-                  <>
-                    <button onClick={() => executePlay('pursue')} className="p-4 bg-red-500 hover:bg-red-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>PURSUE</button>
-                    <button onClick={() => executePlay('contain')} className="p-4 bg-blue-500 hover:bg-blue-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>CONTAIN</button>
-                  </>
-                )}
-                {!isOffense && playState.playType === 'pass_defense' && (
-                  <>
-                    <button onClick={() => executePlay('coverage')} className="p-4 bg-purple-500 hover:bg-purple-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>COVERAGE</button>
-                    <button onClick={() => executePlay('blitz')} className="p-4 bg-red-500 hover:bg-red-400 border-4 border-gray-900 font-bold text-xl" style={{ fontFamily: 'monospace' }}>BLITZ</button>
-                  </>
-                )}
-              </div>
-            </RetroBox>
-          )}
-
-          {playState.result && (
-            <button
-              onClick={nextPlay}
-              className="w-full mt-4 p-6 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
-              style={{ fontFamily: 'monospace' }}
-            >
-              {currentPlay >= 12 ? '✓ END GAME' : '▶ NEXT PLAY'}
-            </button>
           )}
         </div>
       </div>
     );
   }
 
+  // POSTGAME
   if (gameState === 'postgame') {
     const won = gameScore.player > gameScore.opponent;
     
@@ -907,41 +1132,23 @@ export default function RoadToGlory() {
         <div className="max-w-3xl mx-auto pt-8">
           <RetroBox color="yellow">
             <div className="text-center mb-6">
-              <div className="text-5xl mb-4" style={{ fontFamily: 'monospace', textShadow: '4px 4px 0px rgba(0,0,0,0.8)' }}>
-                {won ? '🎉 VICTORY! 🎉' : '😞 DEFEAT 😞'}
+              <div className="text-5xl mb-4" style={{ fontFamily: 'monospace' }}>
+                {won ? '🎉 WIN!' : '😞 LOSS'}
               </div>
-              <div className={`p-6 border-4 border-gray-900 mb-4 ${won ? 'bg-green-500' : 'bg-red-500'} text-white`}>
-                <h2 className="text-4xl font-bold mb-2" style={{ fontFamily: 'monospace' }}>
+              <div className={`p-6 border-4 border-gray-900 ${won ? 'bg-green-500' : 'bg-red-500'} text-white`}>
+                <h2 className="text-4xl font-bold" style={{ fontFamily: 'monospace' }}>
                   FINAL: {gameScore.player} - {gameScore.opponent}
                 </h2>
-                <p className="text-2xl font-bold" style={{ fontFamily: 'monospace' }}>
-                  TEAM RECORD: {player.teamRecord.wins}-{player.teamRecord.losses}
-                </p>
+                {isOvertimeState && <p className="text-xl mt-2">OVERTIME!</p>}
               </div>
             </div>
 
-            {scoutNotification && (
-              <div className="bg-yellow-400 p-4 border-4 border-yellow-600 mb-4">
-                <p className="text-xl font-bold text-center" style={{ fontFamily: 'monospace' }}>
-                  {scoutNotification}
-                </p>
-              </div>
-            )}
-
-            {playoffStatus && playoffStatus.made && (
-              <div className="bg-green-400 p-4 border-4 border-green-600 mb-4">
-                <p className="text-2xl font-bold text-center" style={{ fontFamily: 'monospace' }}>
-                  {playoffStatus.message}
-                </p>
-              </div>
-            )}
-
             <button
-              onClick={continueToNextGame}
-              className="w-full p-6 bg-blue-500 hover:bg-blue-400 border-4 border-gray-900 font-bold text-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
+              onClick={() => setGameState('highschool')}
+              className="w-full p-6 bg-blue-500 hover:bg-blue-400 border-4 border-gray-900 font-bold text-2xl"
               style={{ fontFamily: 'monospace' }}
             >
-              ▶ CONTINUE SEASON
+              CONTINUE
             </button>
           </RetroBox>
         </div>
@@ -949,237 +1156,5 @@ export default function RoadToGlory() {
     );
   }
 
-  // Include recruiting, college, practice, and draft screens from previous version
-  if (gameState === 'recruiting') {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-purple-900 to-purple-700 p-4">
-        <div className="max-w-3xl mx-auto pt-4">
-          <div className="text-center mb-6">
-            <div className="text-5xl font-bold text-yellow-300 mb-2" style={{ fontFamily: 'monospace', textShadow: '4px 4px 0px rgba(0,0,0,0.8)' }}>
-              RECRUITING SEASON
-            </div>
-          </div>
-          
-          <RetroBox color="yellow">
-            <div className="bg-yellow-600 p-4 border-4 border-gray-900 mb-4 text-white">
-              <h3 className="font-bold text-2xl mb-2" style={{ fontFamily: 'monospace' }}>SENIOR SEASON FINAL</h3>
-              <div style={{ fontFamily: 'monospace' }} className="text-lg">
-                <p>TEAM RECORD: {player.teamRecord.wins}-{player.teamRecord.losses}</p>
-                <p>HEIGHT: {Math.floor(player.height / 12)}'{player.height % 12}" | WEIGHT: {player.weight} LBS</p>
-                <p className="mt-2 text-3xl">
-                  {'★'.repeat(player.stars)} {player.stars}-STAR
-                </p>
-                <p className="text-xl mt-2">OVERALL: {player.overall} | GRADES: {player.grades}/100</p>
-              </div>
-            </div>
-
-            {recruiterInterested.length === 0 ? (
-              <RetroBox color="red" className="bg-red-300 text-center">
-                <h3 className="font-bold text-2xl mb-3" style={{ fontFamily: 'monospace' }}>😔 NO D1 OFFERS</h3>
-                <p className="mb-4 font-bold">Not enough to attract programs. Journey ends.</p>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="bg-blue-600 text-white px-8 py-3 border-4 border-gray-900 font-bold hover:bg-blue-500 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.8)]"
-                  style={{ fontFamily: 'monospace' }}
-                >
-                  ↻ TRY AGAIN
-                </button>
-              </RetroBox>
-            ) : (
-              <>
-                <h3 className="font-bold text-2xl mb-4" style={{ fontFamily: 'monospace' }}>🎓 SCHOLARSHIP OFFERS:</h3>
-                <div className="space-y-3">
-                  {recruiterInterested.map(college => (
-                    <button
-                      key={college.name}
-                      onClick={() => chooseCollege(college)}
-                      className="w-full p-5 bg-gradient-to-r from-blue-400 to-blue-500 hover:from-blue-300 hover:to-blue-400 border-4 border-gray-900 text-left shadow-[6px_6px_0px_0px_rgba(0,0,0,0.8)]"
-                    >
-                      <div className="font-bold text-2xl" style={{ fontFamily: 'monospace' }}>{college.name}</div>
-                      <div className="text-lg font-bold">TIER: {college.tier.toUpperCase()}</div>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </RetroBox>
-        </div>
-      </div>
-    );
-  }
-
-  if (gameState === 'college') {
-    const canStart = player.stars >= 4 || player.season >= 3;
-    
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-red-900 to-red-700 p-4">
-        <div className="max-w-3xl mx-auto pt-4">
-          <div className="text-center mb-6">
-            <div className="text-5xl font-bold text-yellow-300 mb-2" style={{ fontFamily: 'monospace', textShadow: '4px 4px 0px rgba(0,0,0,0.8)' }}>
-              {player.college.toUpperCase()}
-            </div>
-            <div className="text-2xl text-white font-bold" style={{ fontFamily: 'monospace' }}>
-              YEAR {player.season} OF 4 | RECORD: {player.teamRecord.wins}-{player.teamRecord.losses}
-            </div>
-          </div>
-          
-          <RetroBox color="yellow">
-            <div className="bg-red-800 p-4 border-4 border-gray-900 mb-4 text-white">
-              <h3 className="font-bold text-xl mb-2" style={{ fontFamily: 'monospace' }}>{player.name} | {player.position}</h3>
-              <div style={{ fontFamily: 'monospace' }}>
-                <p className="text-lg">HEIGHT: {Math.floor(player.height / 12)}'{player.height % 12}" | WEIGHT: {player.weight} LBS</p>
-                <p className="text-2xl mt-2">OVERALL: {player.overall} | COACH: {player.coachRelation}/100</p>
-                <p className="mt-2 text-lg">GAMES: {player.gamesStarted} | TDs: {player.careerStats.touchdowns} | YDS: {player.careerStats.yards}</p>
-              </div>
-            </div>
-
-            {!canStart && (
-              <div className="bg-yellow-400 p-4 border-4 border-gray-900 mb-4">
-                <p className="font-bold text-center text-xl" style={{ fontFamily: 'monospace' }}>
-                  ⚠️ {player.stars}-STAR - BACKUP UNTIL YEAR 3
-                </p>
-              </div>
-            )}
-
-            <button
-              onClick={checkForGame}
-              className="w-full p-6 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-2xl mb-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
-              style={{ fontFamily: 'monospace' }}
-            >
-              ▶ ADVANCE SEASON
-            </button>
-          </RetroBox>
-        </div>
-      </div>
-    );
-  }
-
-  if (gameState === 'practice') {
-    const availableSkills = positionAttributes[player.position];
-    
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-orange-900 to-orange-700 p-4">
-        <div className="max-w-3xl mx-auto pt-4">
-          <div className="text-center mb-6">
-            <div className="text-4xl font-bold text-yellow-300 mb-2" style={{ fontFamily: 'monospace', textShadow: '4px 4px 0px rgba(0,0,0,0.8)' }}>
-              PRACTICE & DEVELOPMENT
-            </div>
-          </div>
-          
-          <RetroBox color="yellow">
-            <div className="bg-orange-200 p-4 border-4 border-gray-900 mb-4">
-              <p className="font-bold text-center text-xl" style={{ fontFamily: 'monospace' }}>
-                📋 NOT STARTING - DEVELOP YOUR SKILLS
-              </p>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="font-bold text-xl mb-3" style={{ fontFamily: 'monospace' }}>
-                SELECT UP TO 3 SKILLS:
-              </h3>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                {availableSkills.map(skill => (
-                  <button
-                    key={skill}
-                    onClick={() => {
-                      if (trainingSkills.includes(skill)) {
-                        setTrainingSkills(trainingSkills.filter(s => s !== skill));
-                      } else if (trainingSkills.length < 3) {
-                        setTrainingSkills([...trainingSkills, skill]);
-                      }
-                    }}
-                    className={`p-4 border-4 border-gray-900 font-bold text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,0.8)] ${
-                      trainingSkills.includes(skill)
-                        ? 'bg-green-500 text-white'
-                        : 'bg-gray-200 hover:bg-gray-300'
-                    }`}
-                    style={{ fontFamily: 'monospace' }}
-                    disabled={!trainingSkills.includes(skill) && trainingSkills.length >= 3}
-                  >
-                    {skill.toUpperCase()}
-                    <div className="text-sm mt-1">({player.attributes[skill]})</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <button
-                onClick={trainSkills}
-                disabled={trainingSkills.length === 0}
-                className="w-full p-5 bg-green-500 hover:bg-green-400 border-4 border-gray-900 font-bold text-2xl disabled:bg-gray-400 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
-                style={{ fontFamily: 'monospace' }}
-              >
-                💪 TRAIN SKILLS
-              </button>
-
-              <button
-                onClick={studyHard}
-                className="w-full p-5 bg-purple-500 hover:bg-purple-400 border-4 border-gray-900 font-bold text-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
-                style={{ fontFamily: 'monospace' }}
-              >
-                📚 STUDY
-              </button>
-            </div>
-          </RetroBox>
-        </div>
-      </div>
-    );
-  }
-
-  if (gameState === 'draft') {
-    const draftResult = getDraftRound();
-    const isUndrafted = draftResult.includes('Undrafted');
-    
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black p-4">
-        <div className="max-w-3xl mx-auto pt-8">
-          <div className="text-center mb-6">
-            <div className="text-6xl font-bold text-yellow-300 mb-2" style={{ fontFamily: 'monospace', textShadow: '4px 4px 0px rgba(0,0,0,0.8)' }}>
-              🏈 NFL DRAFT 🏈
-            </div>
-          </div>
-          
-          <RetroBox color="yellow">
-            <div className="bg-gray-800 text-white p-6 border-4 border-gray-900 mb-4">
-              <h3 className="font-bold text-2xl mb-3 text-center" style={{ fontFamily: 'monospace' }}>COLLEGE CAREER</h3>
-              <div style={{ fontFamily: 'monospace' }} className="text-lg">
-                <p className="font-bold text-xl">{player.name} - {player.position}</p>
-                <p>{player.college}</p>
-                <p className="mt-2">OVERALL: {player.overall}</p>
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div className="bg-green-700 p-2">GAMES: {player.gamesStarted}</div>
-                  <div className="bg-blue-700 p-2">TDs: {player.careerStats.touchdowns}</div>
-                  <div className="bg-purple-700 p-2">YARDS: {player.careerStats.yards}</div>
-                  <div className="bg-red-700 p-2">TACKLES: {player.careerStats.tackles}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className={`p-10 border-4 border-gray-900 text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)] ${
-              isUndrafted ? 'bg-red-400' : 'bg-green-400'
-            }`}>
-              <h2 className="text-4xl font-bold mb-6" style={{ fontFamily: 'monospace' }}>
-                {isUndrafted ? '😔' : '🎉'} {draftResult}
-              </h2>
-              <p className="text-xl font-bold" style={{ fontFamily: 'monospace' }}>
-                {isUndrafted ? 'UNDRAFTED FREE AGENT' : 'WELCOME TO THE NFL!'}
-              </p>
-            </div>
-
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full mt-6 bg-blue-600 text-white py-6 border-4 border-gray-900 font-bold text-2xl hover:bg-blue-500 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.8)]"
-              style={{ fontFamily: 'monospace' }}
-            >
-              ↻ PLAY AGAIN
-            </button>
-          </RetroBox>
-        </div>
-      </div>
-    );
-  }
-
-  return <div>Game state: {gameState}</div>;
+  return null;
 }
-
